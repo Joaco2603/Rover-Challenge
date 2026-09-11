@@ -6,7 +6,9 @@ FASE_READY = "READY"
 FASE_RUNNING = "RUNNING"
 FASE_FINISHED = "FINISHED"
 LATENCIA_MAX_MS = 500
+LATENCIA_MIN_MS = -50
 AGE_PROPIO_MAX_MS = 400
+EDAD_TOTAL_MAX_MS = 700  # latencia + age; tiene que ser < 500+400
 
 _CAMPOS = (
     "v", "seq", "ts_ms", "phase", "grid",
@@ -67,13 +69,20 @@ class Mundo:
         return int(ahora_ms) - int(self.ts_ms)
 
     def datos_viejos(self, aruco_id, ahora_ms):
-        """True si hay que frenar: latencia, age_ms propio, o rover ausente."""
-        if self.latencia_ms(ahora_ms) > LATENCIA_MAX_MS:
+        """True si hay que frenar: latencia, reloj desfasado, age, o rover ausente."""
+        latencia = self.latencia_ms(ahora_ms)
+        if latencia > LATENCIA_MAX_MS or latencia < LATENCIA_MIN_MS:
             return True
         r = self.rover(aruco_id)
         if r is None:
             return True
-        return int(r["age_ms"]) > AGE_PROPIO_MAX_MS
+        try:
+            age_ms = int(r.get("age_ms", 9999))
+        except (TypeError, ValueError):
+            return True
+        if age_ms > AGE_PROPIO_MAX_MS:
+            return True
+        return (latencia + max(age_ms, 0)) > EDAD_TOTAL_MAX_MS
 
     def se_juega(self):
         return self.phase == FASE_RUNNING
