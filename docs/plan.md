@@ -65,4 +65,4 @@ Cuando la tubería ya no falle: [`docs/plan-algoritmo.md`](plan-algoritmo.md). T
 
 ## Next step
 
-P0: cablear y validar el segundo robot con el mapa de pines de [`docs/cabling.md`](cabling.md). En paralelo, P1 en la laptop contra `vision-system/contrato/mock_publisher.py`.
+P0: cablear y validar el segundo robot con el mapa de pines de `docs/readme.md`. En paralelo, P1 en la laptop contra `vision-system/contrato/mock_publisher.py`.
