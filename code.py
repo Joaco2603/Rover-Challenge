@@ -1,10 +1,22 @@
 # Loop P2: Wi-Fi, cliente TCP :2026, freno fuera de RUNNING, GOTO por dt.
 # IdeaBoard sin disco CIRCUITPY: Thonny o test/subir.py del repo padre.
 
+import sys
 import time
 
+_raiz = __file__.rsplit("/", 1)[0]
+if not _raiz:
+    _raiz = "/"
+_src = _raiz.rstrip("/") + "/src"
+for _p in (_raiz, _src):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 import config
-import pines
+import hardware
+from hardware import pines
+import red
+from red import enlace
 
 try:
     import mundo
@@ -15,143 +27,7 @@ except ImportError:
     tcp = None
     control = None
 
-try:
-    import board
-    import wifi
-    import socketpool
-    from ideaboard import IdeaBoard
-except ImportError:
-    board = None
-    wifi = None
-    socketpool = None
-    IdeaBoard = None
-
-try:
-    import espnow as lib_espnow
-except ImportError:
-    lib_espnow = None
-
 WATCHDOG_S = 0.4
-PEER_NULO = "AA:BB:CC:DD:EE:FF"
-ROJO, VERDE, AMARILLO = (255, 0, 0), (0, 255, 0), (255, 180, 0)
-RX = bytearray(512)
-
-
-def pin_io(gpio):
-    return getattr(board, pines.nombre_io(gpio))
-
-
-def frenar(ib):
-    if ib is not None:
-        ib.motor_1.throttle = 0
-        ib.motor_2.throttle = 0
-
-
-def pintar(ib, rgb):
-    if ib is not None:
-        ib.pixel = rgb
-
-
-def throttle(x):
-    if x > 1:
-        return 1
-    if x < -1:
-        return -1
-    return x
-
-
-def escribir_motores(ib, izq, der):
-    if ib is None:
-        return
-    ib.motor_1.throttle = throttle(izq)
-    ib.motor_2.throttle = throttle(der)
-
-
-def conectar_wifi():
-    if wifi is None:
-        return False
-    ssid = config.WIFI_SSID
-    if not ssid or ssid == "CAMBIAR":
-        print("WIFI_SSID=CAMBIAR: copia secrets.py.example a secrets.py")
-        return False
-    if not wifi.radio.ipv4_address:
-        print("Wi-Fi a", ssid)
-        wifi.radio.connect(ssid, config.WIFI_PASSWORD)
-    print("Wi-Fi IP", wifi.radio.ipv4_address)
-    return True
-
-
-def abrir_tcp(pool):
-    host = config.VISION_HOST
-    if host in ("127.0.0.1", "localhost"):
-        print("VISION_HOST no puede ser 127.0.0.1; usa la IP de la laptop")
-        return None
-    sock = pool.socket(pool.AF_INET, pool.SOCK_STREAM)
-    try:
-        sock.settimeout(3)
-        sock.connect((host, int(config.VISION_PORT)))
-        try:
-            sock.setblocking(False)
-        except AttributeError:
-            sock.settimeout(0)
-        print("TCP {}:{}".format(host, config.VISION_PORT))
-        return sock
-    except Exception as err:
-        print("TCP fallo:", err)
-        try:
-            sock.close()
-        except Exception:
-            pass
-        return None
-
-
-def drenar_tcp(sock, buf):
-    while True:
-        try:
-            n = sock.recv_into(RX)
-        except OSError:
-            return True
-        if n is None or n == 0:
-            return False
-        if buf is not None:
-            buf.alimentar(bytes(RX[:n]))
-
-
-def armar_espnow():
-    txt = config.PEER_MAC
-    if not txt or txt.upper() == PEER_NULO or lib_espnow is None:
-        print("ESP-NOW omitido")
-        return None
-    try:
-        partes = txt.split(":")
-        mac = bytes([int(p, 16) for p in partes])
-        radio = lib_espnow.ESPNow()
-        radio.peers.append(lib_espnow.Peer(mac=mac))
-        print("ESP-NOW peer", txt)
-        return radio
-    except Exception as err:
-        print("ESP-NOW no arranco:", err)
-        return None
-
-
-def drenar_espnow(radio):
-    if radio is None:
-        return
-    for _ in range(8):
-        try:
-            if not radio.read():
-                return
-        except Exception:
-            return
-
-
-def claim_espnow(radio):
-    if radio is None:
-        return
-    try:
-        radio.send("id={}".format(config.ARUCO_ID).encode("utf-8"))
-    except Exception:
-        pass
 
 
 def llegada_celdas(mundo_obj):
@@ -161,42 +37,32 @@ def llegada_celdas(mundo_obj):
     return fn(getattr(control, "LLEGADA_MM", 20), getattr(mundo_obj, "cell_mm", 20))
 
 
-def cerrar(sock):
-    if sock is None:
-        return None
-    try:
-        sock.close()
-    except Exception:
-        pass
-    return None
-
-
 def main():
-    ib = IdeaBoard() if IdeaBoard is not None else None
+    ib = hardware.IdeaBoard() if hardware.IdeaBoard is not None else None
     if ib is not None:
         ib.brightness = 0.3
-    frenar(ib)
-    pintar(ib, ROJO)
-    if board is not None:
-        pin_io(pines.IR_FL)
-        pin_io(pines.US_TRIG)
-        pin_io(pines.COLOR_AO)
+    hardware.frenar(ib)
+    hardware.pintar(ib, hardware.ROJO)
+    if hardware.board is not None:
+        hardware.pin_io(pines.IR_FL)
+        hardware.pin_io(pines.US_TRIG)
+        hardware.pin_io(pines.COLOR_AO)
     if mundo is None or tcp is None:
         print("faltan mundo/tcp (otros PRs). Conecto igual; sin parseo no me muevo.")
     if control is None:
         print("sin control.py: pose si, motores 0")
-    while not conectar_wifi():
-        frenar(ib)
-        pintar(ib, ROJO)
+    while not red.conectar_wifi():
+        hardware.frenar(ib)
+        hardware.pintar(ib, hardware.ROJO)
         time.sleep(1)
-    if socketpool is None:
+    if red.socketpool is None:
         print("sin socketpool; quieto")
         while True:
-            frenar(ib)
+            hardware.frenar(ib)
             time.sleep(0.5)
-    pool = socketpool.SocketPool(wifi.radio)
+    pool = red.socketpool.SocketPool(red.wifi.radio)
     buf = tcp.BufferNDJSON() if tcp is not None else None
-    radio = armar_espnow()
+    radio = enlace.armar_espnow()
     sock = None
     seq_visto = None
     t_msg = None
@@ -205,23 +71,23 @@ def main():
     while True:
         try:
             if sock is None:
-                frenar(ib)
-                pintar(ib, ROJO)
-                sock = abrir_tcp(pool)
+                hardware.frenar(ib)
+                hardware.pintar(ib, hardware.ROJO)
+                sock = red.abrir_tcp(pool)
                 if sock is None:
                     time.sleep(0.5)
                     continue
                 seq_visto = None
                 t_msg = None
-            if not drenar_tcp(sock, buf):
+            if not red.drenar_tcp(sock, buf):
                 print("TCP cayo, reconecto")
-                sock = cerrar(sock)
-                frenar(ib)
+                sock = red.cerrar(sock)
+                hardware.frenar(ib)
                 continue
-            drenar_espnow(radio)
+            enlace.drenar_espnow(radio)
             ahora = time.monotonic()
             if radio is not None and ahora - t_claim >= 1.0:
-                claim_espnow(radio)
+                enlace.claim_espnow(radio)
                 t_claim = ahora
             parsed = None
             msg = buf.ultimo() if buf is not None else None
@@ -239,19 +105,19 @@ def main():
             mover = se_juega and not datos_viejos and not viejo and yo is not None
             izq = der = 0
             if not mover:
-                frenar(ib)
-                pintar(ib, AMARILLO if (datos_viejos or viejo) else ROJO)
+                hardware.frenar(ib)
+                hardware.pintar(ib, hardware.AMARILLO if (datos_viejos or viejo) else hardware.ROJO)
             elif config.MODO == "GOTO" and control is not None:
                 izq, der, _llego = control.ir_a_pose(
                     yo["col"], yo["row"], yo["theta"],
                     config.GOTO_COL, config.GOTO_ROW,
                     llegada_celdas=llegada_celdas(parsed),
                 )
-                escribir_motores(ib, izq, der)
-                pintar(ib, VERDE if abs(izq) > 0.02 or abs(der) > 0.02 else ROJO)
+                hardware.escribir_motores(ib, izq, der)
+                hardware.pintar(ib, hardware.VERDE if abs(izq) > 0.02 or abs(der) > 0.02 else hardware.ROJO)
             else:
-                frenar(ib)
-                pintar(ib, ROJO)
+                hardware.frenar(ib)
+                hardware.pintar(ib, hardware.ROJO)
             if ahora - t_print >= 0.2:
                 t_print = ahora
                 phase = parsed.phase if parsed is not None else "?"
@@ -268,18 +134,18 @@ def main():
                     print("quieto phase={} (no RUNNING o datos viejos)".format(phase))
             time.sleep(0.02)
         except KeyboardInterrupt:
-            frenar(ib)
+            hardware.frenar(ib)
             raise
         except Exception as err:
             print("loop:", err)
-            frenar(ib)
-            pintar(ib, ROJO)
-            sock = cerrar(sock)
+            hardware.frenar(ib)
+            hardware.pintar(ib, hardware.ROJO)
+            sock = red.cerrar(sock)
             time.sleep(0.2)
 
 
 if __name__ == "__main__":
-    if wifi is None or socketpool is None:
+    if red.wifi is None or red.socketpool is None:
         print("sin wifi/socketpool (no es la IdeaBoard); no arranco el loop")
     else:
         main()

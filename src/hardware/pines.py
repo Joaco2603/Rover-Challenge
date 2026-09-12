@@ -1,5 +1,5 @@
 # Pines del robot que anda (README.md). No importar board.
-# IdeaBoard uses board.IO36 etc. code.py maps with getattr(board, "IO36").
+# IdeaBoard uses board.IO36 etc. pin_io maps with getattr(board, "IO36").
 # sen1 IR FL, sen2 IR FR (no es color AO), sen3 IR BL, sen4 IR BR.
 IR_FL, IR_FR, IR_BL, IR_BR = 36, 39, 34, 35
 # US TRIG no es 25. US OUT no se conecta.
